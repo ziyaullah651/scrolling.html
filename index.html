@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NAVABLE AI</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+<style>
+
+body{
+font-family:Arial;
+margin:0;
+background:#f4f6f8;
+}
+
+.app{
+max-width:420px;
+margin:auto;
+background:white;
+min-height:100vh;
+padding:20px;
+}
+
+.logo{
+font-size:26px;
+font-weight:bold;
+text-align:center;
+color:#1976d2;
+}
+
+.output{
+margin-top:15px;
+padding:15px;
+background:#e3f2fd;
+border-radius:6px;
+min-height:70px;
+}
+
+video{
+width:100%;
+margin-top:15px;
+border-radius:10px;
+}
+
+button{
+margin-top:15px;
+padding:12px;
+width:100%;
+font-size:16px;
+background:#1976d2;
+color:white;
+border:none;
+border-radius:6px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+<div class="logo">NAVABLE AI</div>
+
+<div class="output" id="output">
+Press Start and say "Hi Navable"
+</div>
+
+<button onclick="startVoice()">Start Voice</button>
+
+<div id="stepDisplay">Steps: 0</div>
+
+<video id="camera" autoplay playsinline></video>
+
+</div>
+
+<script>
+
+/* VARIABLES */
+
+let recognition
+let navActive=false
+let detectionActive=false
+let model
+let lastSpeakTime=0
+
+let stepCount=0
+let lastAcceleration=0
+
+/* SPEAK */
+
+function speak(text){
+
+window.speechSynthesis.cancel()
+
+let speech=new SpeechSynthesisUtterance(text)
+
+speech.rate=0.9
+speech.lang="en-US"
+
+window.speechSynthesis.speak(speech)
+
+}
+
+/* VOICE SYSTEM */
+
+function startVoice(){
+
+const SpeechRecognition =
+window.SpeechRecognition || window.webkitSpeechRecognition
+
+recognition = new SpeechRecognition()
+
+recognition.continuous = true
+recognition.interimResults = false
+recognition.lang="en-US"
+
+recognition.onresult=function(event){
+
+let transcript =
+event.results[event.results.length-1][0].transcript
+.toLowerCase()
+
+console.log("Heard:",transcript)
+
+/* WAKE WORD */
+
+if(
+transcript.includes("hi navable") ||
+transcript.includes("hey navable") ||
+transcript.includes("navable")
+){
+
+if(!navActive){
+
+navActive=true
+
+speak("Hi dear")
+
+document.getElementById("output").innerText =
+"Hi dear. Say start navigation"
+
+}
+
+}
+
+/* START NAVIGATION */
+
+if(navActive && transcript.includes("start navigation")){
+
+speak("Navigation started")
+
+detectionActive=true
+
+startDetection()
+
+}
+
+/* STOP NAVIGATION */
+
+if(navActive && transcript.includes("stop")){
+
+navActive=false
+
+detectionActive=false
+
+speak("Navigation stopped")
+
+}
+
+}
+
+recognition.onerror=function(e){
+console.log(e)
+}
+
+recognition.onend=function(){
+
+try{
+recognition.start()
+}catch(e){}
+
+}
+
+recognition.start()
+
+}
+
+/* STEP COUNTER */
+
+window.addEventListener("devicemotion",function(event){
+
+let acc = event.accelerationIncludingGravity.y
+
+if(Math.abs(acc-lastAcceleration)>12){
+
+stepCount++
+
+document.getElementById("stepDisplay").innerText="Steps: "+stepCount
+
+}
+
+lastAcceleration=acc
+
+})
+
+/* CAMERA */
+
+async function startCamera(){
+
+const stream =
+await navigator.mediaDevices.getUserMedia({
+video:{facingMode:"environment"}
+})
+
+document.getElementById("camera").srcObject=stream
+
+}
+
+startCamera()
+
+/* LOAD AI MODEL */
+
+async function loadModel(){
+
+model = await cocoSsd.load()
+
+console.log("AI model loaded")
+
+}
+
+loadModel()
+
+/* DISTANCE ESTIMATION */
+
+function estimateDistance(width){
+
+if(width>400) return "very close"
+if(width>250) return "close"
+if(width>120) return "medium distance"
+
+return "far"
+
+}
+
+/* OBJECT DETECTION */
+
+function startDetection(){
+
+setInterval(async()=>{
+
+if(!model || !detectionActive) return
+
+const video=document.getElementById("camera")
+
+const predictions=await model.detect(video)
+
+predictions.forEach(pred=>{
+
+if(pred.score>0.75){
+
+let now=Date.now()
+
+if(now-lastSpeakTime<3000) return
+
+let x=pred.bbox[0]
+let width=video.videoWidth
+
+let direction
+
+if(x < width/3)
+direction="left"
+
+else if(x > width*2/3)
+direction="right"
+
+else
+direction="center"
+
+let distance=estimateDistance(pred.bbox[2])
+
+speak(
+"Warning " +
+pred.class +
+" detected on your " +
+direction +
+" " +
+distance
+)
+
+if(navigator.vibrate)
+navigator.vibrate([300,200,300])
+
+lastSpeakTime=now
+
+}
+
+})
+
+},2000)
+
+}
+
+</script>
+
+</body>
+</html>
